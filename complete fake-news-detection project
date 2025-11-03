@@ -1,0 +1,236 @@
+# Creating a complete fake-news-detection project bundle (train script, Flask app, README, requirements).
+# This will save a zip file to /mnt/data/fake_news_detection_project.zip that you can download.
+import os, json, textwrap, zipfile
+
+project_root = "/mnt/data/fake_news_detection_project"
+os.makedirs(project_root, exist_ok=True)
+
+# README
+readme = f"""
+Fake News Detection — Project Bundle
+===================================
+
+This project implements a basic Fake News Detection system (binary classification) using Python.
+It follows the approach described in the Simplilearn tutorial:
+How to Create a Fake News Detection System? — https://www.simplilearn.com/tutorials/machine-learning-tutorial/how-to-create-a-fake-news-detection-system
+(Referenced for guidance and structure.)
+
+Included files:
+- train_model.py         # Script to load dataset (Fake.csv / True.csv), preprocess, train and save a model.
+- app.py                 # Flask web app that loads the trained model and exposes a prediction endpoint.
+- requirements.txt       # Python dependencies.
+- README.md              # This file.
+- dataset_instructions.txt # How to get the dataset from Kaggle and where to place it.
+- utils.py               # Small helper functions used by scripts.
+- example_input.json     # Example JSON payload for the Flask app.
+
+Dataset used in examples:
+- 'Fake.csv' and 'True.csv' from the popular Kaggle "fake-and-real-news-dataset":
+  https://www.kaggle.com/datasets/clmentbisaillon/fake-and-real-news-dataset
+  (You must download these and place them in a folder named 'data' inside the project.)
+
+How to use:
+1. Create a Python virtual environment and install dependencies:
+   python -m venv venv
+   source venv/bin/activate   # or venv\\Scripts\\activate on Windows
+   pip install -r requirements.txt
+
+2. Place the dataset files:
+   project_root/data/Fake.csv
+   project_root/data/True.csv
+
+3. Train the model:
+   python train_model.py
+
+   This will create a file 'model.joblib' under the project root.
+
+4. Start the Flask app:
+   python app.py
+
+   The app will run at http://127.0.0.1:5000 and expose a /predict endpoint that accepts JSON.
+
+Simplilearn tutorial (reference):
+https://www.simplilearn.com/tutorials/machine-learning-tutorial/how-to-create-a-fake-news-detection-system
+"""
+
+open(os.path.join(project_root, "README.md"), "w", encoding="utf-8").write(readme.strip())
+
+# dataset_instructions
+dataset_instructions = """
+Dataset instructions
+====================
+
+1. Go to Kaggle dataset: https://www.kaggle.com/datasets/clmentbisaillon/fake-and-real-news-dataset
+2. Download 'Fake.csv' and 'True.csv'.
+3. Create a folder named 'data' inside the project directory and put the two CSV files there:
+   ./data/Fake.csv
+   ./data/True.csv
+
+If you have the Kaggle CLI set up, you can also download programmatically (optional).
+"""
+
+open(os.path.join(project_root, "dataset_instructions.txt"), "w", encoding="utf-8").write(dataset_instructions.strip())
+
+# requirements.txt
+requirements = """
+flask
+pandas
+scikit-learn
+joblib
+nltk
+"""
+open(os.path.join(project_root, "requirements.txt"), "w", encoding="utf-8").write(requirements.strip())
+
+# utils.py
+utils = '''
+import re
+import nltk
+from nltk.corpus import stopwords
+
+# Ensure NLTK resources are available when running the script for the first time.
+def ensure_nltk():
+    import nltk
+    try:
+        nltk.data.find("tokenizers/punkt")
+    except:
+        nltk.download("punkt")
+    try:
+        nltk.data.find("corpora/stopwords")
+    except:
+        nltk.download("stopwords")
+
+def clean_text(text):
+    if not isinstance(text, str):
+        return ""
+    # basic cleaning
+    text = text.lower()
+    text = re.sub(r"http\\S+","", text)
+    text = re.sub(r"[^a-z0-9\\s]", " ", text)
+    text = re.sub(r"\\s+", " ", text).strip()
+    return text
+'''
+open(os.path.join(project_root, "utils.py"), "w", encoding="utf-8").write(utils.strip())
+
+# train_model.py
+train_model = '''
+"""
+train_model.py
+
+Loads Fake.csv and True.csv from ./data, combines them, preprocesses text, vectorizes using TF-IDF,
+trains a Logistic Regression classifier, evaluates it, and saves the model and vectorizer to model.joblib.
+"""
+import os
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
+import joblib
+from utils import clean_text, ensure_nltk
+
+def load_data(data_folder="data"):
+    fake_path = os.path.join(data_folder, "Fake.csv")
+    true_path = os.path.join(data_folder, "True.csv")
+    if not os.path.exists(fake_path) or not os.path.exists(true_path):
+        raise FileNotFoundError("Place 'Fake.csv' and 'True.csv' inside the 'data' folder.")
+    fake = pd.read_csv(fake_path)
+    true = pd.read_csv(true_path)
+    fake["label"] = 0
+    true["label"] = 1
+    # many versions of these datasets use columns 'title' and 'text'
+    # we'll combine title + text for input
+    def merge_columns(row):
+        parts = []
+        for col in ["title","text"]:
+            if col in row and pd.notna(row[col]):
+                parts.append(str(row[col]))
+        return " ".join(parts)
+    fake["content"] = fake.apply(merge_columns, axis=1)
+    true["content"] = true.apply(merge_columns, axis=1)
+    df = pd.concat([fake, true], ignore_index=True).sample(frac=1, random_state=42).reset_index(drop=True)
+    return df[["content","label"]]
+
+def main():
+    ensure_nltk()
+    print("Loading data...")
+    df = load_data()
+    print("Cleaning text...")
+    df["content"] = df["content"].fillna("").apply(clean_text)
+    X = df["content"].values
+    y = df["label"].values
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+    print("Vectorizing with TF-IDF...")
+    tfidf = TfidfVectorizer(max_df=0.8, min_df=5, ngram_range=(1,2), stop_words="english")
+    X_train_tfidf = tfidf.fit_transform(X_train)
+    X_test_tfidf = tfidf.transform(X_test)
+    print("Training Logistic Regression...")
+    clf = LogisticRegression(max_iter=1000)
+    clf.fit(X_train_tfidf, y_train)
+    print("Evaluating...")
+    preds = clf.predict(X_test_tfidf)
+    print("Accuracy:", accuracy_score(y_test, preds))
+    print(classification_report(y_test, preds))
+    print("Confusion matrix:\\n", confusion_matrix(y_test, preds))
+    # Save model and vectorizer
+    joblib.dump({"model": clf, "vectorizer": tfidf}, "model.joblib")
+    print("Saved model.joblib")
+
+if __name__ == "__main__":
+    main()
+'''
+open(os.path.join(project_root, "train_model.py"), "w", encoding="utf-8").write(train_model.strip())
+
+# app.py (Flask)
+app_py = '''
+from flask import Flask, request, jsonify
+import joblib
+from utils import clean_text, ensure_nltk
+import traceback
+
+ensure_nltk()
+app = Flask(__name__)
+# load saved model
+obj = joblib.load("model.joblib")
+model = obj["model"]
+vectorizer = obj["vectorizer"]
+
+@app.route("/")
+def home():
+    return "Fake News Detection API. POST /predict with JSON {'text': '...'}"
+
+@app.route("/predict", methods=["POST"])
+def predict():
+    try:
+        data = request.get_json()
+        text = data.get("text","") if isinstance(data, dict) else ""
+        cleaned = clean_text(text)
+        X = vectorizer.transform([cleaned])
+        pred = model.predict(X)[0]
+        proba = model.predict_proba(X).max()
+        label = "real" if pred==1 else "fake"
+        return jsonify({"label": label, "confidence": float(proba)})
+    except Exception as e:
+        return jsonify({"error": str(e), "trace": traceback.format_exc()}), 400
+
+if __name__ == "__main__":
+    app.run(debug=True)
+'''
+open(os.path.join(project_root, "app.py"), "w", encoding="utf-8").write(app_py.strip())
+
+# example_input.json
+example_input = {
+    "text": "Scientists discover new treatment for disease; official sources confirm effectiveness."
+}
+open(os.path.join(project_root, "example_input.json"), "w", encoding="utf-8").write(json.dumps(example_input, indent=2))
+
+# Zip the project
+zip_path = "/mnt/data/fake_news_detection_project.zip"
+with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+    for foldername, subfolders, filenames in os.walk(project_root):
+        for filename in filenames:
+            filepath = os.path.join(foldername, filename)
+            arcname = os.path.relpath(filepath, project_root)
+            z.write(filepath, arcname)
+
+print(f"Created project zip at: {zip_path}")
+
