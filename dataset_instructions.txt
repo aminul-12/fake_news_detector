@@ -1,0 +1,10 @@
+Dataset instructions
+====================
+
+1. Go to Kaggle dataset: https://www.kaggle.com/datasets/clmentbisaillon/fake-and-real-news-dataset
+2. Download 'Fake.csv' and 'True.csv'.
+3. Create a folder named 'data' inside the project directory and put the two CSV files there:
+   ./data/Fake.csv
+   ./data/True.csv
+
+If you have the Kaggle CLI set up, you can also download programmatically (optional).
